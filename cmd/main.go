@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/xuri/excelize/v2"
@@ -204,13 +205,13 @@ func (p *PriceComparator) processFullpriceRows() error {
 			continue
 		}
 
-		p.processRow(i, row)
+		p.processRow(row)
 	}
 
 	return p.saveChanges()
 }
 
-func (p *PriceComparator) processRow(rowIndex int, row []string) {
+func (p *PriceComparator) processRow(row []string) {
 	code := strings.TrimSpace(row[1])
 	quantity := strings.TrimSpace(row[3])
 
@@ -218,46 +219,45 @@ func (p *PriceComparator) processRow(rowIndex int, row []string) {
 		return
 	}
 
-	p.writeSeparator()
-
 	if quantity == "0" {
-		p.handleZeroQuantity(rowIndex, code, quantity)
-	} else {
-		p.writeLog("Строка %d, Код: %s, Остаток: %s - без изменений\n", rowIndex+1, code, quantity)
+		p.handleZeroQuantity(code)
 	}
 }
 
-func (p *PriceComparator) handleZeroQuantity(rowIndex int, code, quantity string) {
-	p.writeLog("Строка %d, Код: %s, Остаток: %s - Ищем в других файлах.\n", rowIndex+1, code, quantity)
-
-	updated := false
-
-	if p.updateQuantityInFile(p.koreaFile, p.koreaCodes, code, quantity) {
-		p.writeLog("  ✓ Обновлено в XZAD_Корея.xlsx\n")
-		updated = true
+func (p *PriceComparator) handleZeroQuantity(code string) {
+	if updated, quantity := p.updateQuantityInFile(p.koreaFile, p.koreaCodes, code); updated {
+		p.writeLog("Код: %s, Старое количество: %f,  ✓ Обновлено в XZAD_Корея.xlsx\n", code, quantity)
 	}
 
-	if p.updateQuantityInFile(p.europeFile, p.europeCodes, code, quantity) {
-		p.writeLog("  ✓ Обновлено в XZAP_ Э.xlsx\n")
-		updated = true
-	}
-
-	if !updated {
-		p.writeLog("  ✗ Код %s не найден ни в одном из файлов\n", code)
+	if updated, quantity := p.updateQuantityInFile(p.europeFile, p.europeCodes, code); updated {
+		p.writeLog("Код: %s, Старое количество: %f,  ✓ Обновлено в XZAP_ Э.xlsx\n", code, quantity)
 	}
 }
 
-func (p *PriceComparator) updateQuantityInFile(file *excelize.File, codesMap map[string]CodeInfo, code, quantity string) bool {
+func (p *PriceComparator) updateQuantityInFile(file *excelize.File, codesMap map[string]CodeInfo, code string) (bool, float64) {
 	codeInfo, exists := codesMap[code]
 	if !exists {
-		return false
+		return false, 0
 	}
 
 	excelRowNum := codeInfo.RowIndex + 1
 	cellName := fmt.Sprintf("D%d", excelRowNum)
+	quantity, err := file.GetCellValue(codeInfo.Sheet, cellName)
+	if err != nil {
+		fmt.Println(err)
+		return false, 0
+	}
+	floatQuantity, err := strconv.ParseFloat(quantity, 64)
+	if err != nil {
+		fmt.Println(err)
+		return false, 0
+	}
 
-	file.SetCellStr(codeInfo.Sheet, cellName, quantity)
-	return true
+	if floatQuantity != 0 {
+		file.SetCellFloat(codeInfo.Sheet, cellName, 0, -1, 64)
+		return true, floatQuantity
+	}
+	return false, 0
 }
 
 func (p *PriceComparator) saveChanges() error {
@@ -270,7 +270,7 @@ func (p *PriceComparator) saveChanges() error {
 	return nil
 }
 
-func (p *PriceComparator) writeLog(format string, args ...interface{}) {
+func (p *PriceComparator) writeLog(format string, args ...any) {
 	if p.writer != nil {
 		fmt.Fprintf(p.writer, format, args...)
 	}
