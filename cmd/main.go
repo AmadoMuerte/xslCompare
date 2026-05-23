@@ -256,10 +256,6 @@ func (p *PriceComparator) updateQuantityInFile(file *excelize.File, codesMap map
 	excelRowNum := codeInfo.RowIndex + 1
 	cellName := fmt.Sprintf("D%d", excelRowNum)
 
-	if code == "LR032567" {
-		fmt.Println(quantity, cellName, codeInfo.Sheet)
-	}
-
 	file.SetCellStr(codeInfo.Sheet, cellName, quantity)
 	return true
 }
