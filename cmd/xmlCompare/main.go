@@ -3,21 +3,15 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/AmadoMuerte/xslCompare/internal/constants"
+	"github.com/AmadoMuerte/xslCompare/internal/excelutil"
+	"github.com/AmadoMuerte/xslCompare/internal/fileutil"
+	"github.com/AmadoMuerte/xslCompare/internal/log"
 	"github.com/xuri/excelize/v2"
-)
-
-const (
-	outputFile     = "output.txt"
-	fullpriceFile  = "fullprice.xlsx"
-	koreaFileName  = "XZAD_Корея.xlsx"
-	europeFileName = "XZAP_ Э.xlsx"
-	filesDir       = "files"
 )
 
 type CodeInfo struct {
@@ -43,24 +37,24 @@ func main() {
 
 func run() error {
 	// Подготовка директории
-	if err := prepareDirectory(); err != nil {
+	if err := fileutil.PrepareDirectory(constants.FilesDir); err != nil {
 		return fmt.Errorf("подготовка директории: %w", err)
 	}
 
 	// Копирование файлов
-	if err := copyFilesToWorkDir(); err != nil {
+	if err := fileutil.CopyFilesToWorkDir(constants.FilesDir, []string{constants.KoreaFileName, constants.EuropeFileName}); err != nil {
 		return fmt.Errorf("копирование файлов: %w", err)
 	}
 
 	// Открытие Excel файлов
-	files, err := openExcelFiles()
+	files, err := excelutil.OpenExcelFiles([]string{constants.FullpriceFileName, constants.KoreaFileName, constants.EuropeFileName})
 	if err != nil {
 		return fmt.Errorf("открытие файлов: %w", err)
 	}
-	defer closeExcelFiles(files)
+	defer excelutil.CloseExcelFiles(files)
 
 	// Сравнение цен и обновление
-	comparator := NewPriceComparator(files.fullprice, files.korea, files.europe)
+	comparator := NewPriceComparator(files)
 	if err := comparator.CompareAndUpdate(); err != nil {
 		return fmt.Errorf("сравнение цен: %w", err)
 	}
@@ -69,92 +63,29 @@ func run() error {
 	return nil
 }
 
-func prepareDirectory() error {
-	return os.MkdirAll(filesDir, 0777)
-}
-
-func copyFilesToWorkDir() error {
-	files := []string{koreaFileName, europeFileName}
-	for _, file := range files {
-		if err := copyFile(file, filesDir); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-type excelFiles struct {
-	fullprice, korea, europe *excelize.File
-}
-
-func openExcelFiles() (*excelFiles, error) {
-	fullprice, err := excelize.OpenFile(fullpriceFile)
-	if err != nil {
-		return nil, fmt.Errorf("открытие fullprice.xlsx: %w", err)
-	}
-
-	korea, err := excelize.OpenFile(filesDir + "/" + koreaFileName)
-	if err != nil {
-		fullprice.Close()
-		return nil, fmt.Errorf("открытие %s: %w", koreaFileName, err)
-	}
-
-	europe, err := excelize.OpenFile(filesDir + "/" + europeFileName)
-	if err != nil {
-		fullprice.Close()
-		korea.Close()
-		return nil, fmt.Errorf("открытие %s: %w", europeFileName, err)
-	}
-
-	return &excelFiles{
-		fullprice: fullprice,
-		korea:     korea,
-		europe:    europe,
-	}, nil
-}
-
-func closeExcelFiles(files *excelFiles) {
-	files.fullprice.Close()
-	files.korea.Close()
-	files.europe.Close()
-}
-
-func NewPriceComparator(fullprice, korea, europe *excelize.File) *PriceComparator {
+func NewPriceComparator(files *excelutil.ExcelFiles) *PriceComparator {
 	return &PriceComparator{
-		fullprice:   fullprice,
-		koreaFile:   korea,
-		europeFile:  europe,
+		fullprice:   files.Fullprice,
+		koreaFile:   files.Korea,
+		europeFile:  files.Europe,
 		koreaCodes:  make(map[string]CodeInfo),
 		europeCodes: make(map[string]CodeInfo),
 	}
 }
 
 func (p *PriceComparator) CompareAndUpdate() error {
-	if err := p.initLogFile(); err != nil {
+	var err error
+	p.writer, err = log.InitLogFile(constants.XmlCompareLogFile)
+	if err != nil {
 		return err
 	}
-	defer p.finalizeLog()
+	defer log.FinalizeLog(p.writer)
 
 	if err := p.loadCodeIndexes(); err != nil {
 		return err
 	}
 
 	return p.processFullpriceRows()
-}
-
-func (p *PriceComparator) initLogFile() error {
-	file, err := os.Create(outputFile)
-	if err != nil {
-		return fmt.Errorf("создание лог-файла: %w", err)
-	}
-	p.writer = bufio.NewWriter(file)
-	return nil
-}
-
-func (p *PriceComparator) finalizeLog() {
-	if p.writer != nil {
-		p.writer.Flush()
-	}
 }
 
 func (p *PriceComparator) loadCodeIndexes() error {
@@ -274,41 +205,4 @@ func (p *PriceComparator) writeLog(format string, args ...any) {
 	if p.writer != nil {
 		fmt.Fprintf(p.writer, format, args...)
 	}
-}
-
-func (p *PriceComparator) writeSeparator() {
-	p.writeLog("------------------------------------------------------------------------\n")
-}
-
-func copyFile(filename, dir string) error {
-	destPath := filepath.Join(dir, filename)
-
-	if info, err := os.Stat(destPath); err == nil {
-		if !info.IsDir() {
-			if err := os.Remove(destPath); err != nil {
-				return fmt.Errorf("не удалось удалить %s: %w", destPath, err)
-			}
-			fmt.Printf("Удален старый файл: %s\n", destPath)
-		}
-	}
-
-	sourceFile, err := os.Open(filename)
-	if err != nil {
-		return fmt.Errorf("не удалось открыть %s: %w", filename, err)
-	}
-	defer sourceFile.Close()
-
-	destFile, err := os.Create(destPath)
-	if err != nil {
-		return fmt.Errorf("не удалось создать %s: %w", destPath, err)
-	}
-	defer destFile.Close()
-
-	if written, err := io.Copy(destFile, sourceFile); err != nil {
-		return fmt.Errorf("ошибка копирования %s: %w", filename, err)
-	} else {
-		fmt.Printf("Скопировано %d байт: %s -> %s\n", written, filename, destPath)
-	}
-
-	return nil
 }
