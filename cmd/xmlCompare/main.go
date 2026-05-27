@@ -45,7 +45,7 @@ func run() error {
 		return fmt.Errorf("сравнение цен: %w", err)
 	}
 
-	fmt.Println("Обработка завершена успешно. Результат в файле output.txt")
+	fmt.Println("Обработка завершена успешно.")
 	return nil
 }
 
