@@ -28,6 +28,11 @@ func (p *PriceComparator) CompareAndUpdate() error {
 	}
 	defer log.FinalizeLog(p.Writer)
 
+	// Заголовок таблицы
+	p.writeLog("%-15s | %-20s | %-15s | %s\n",
+		"Код", "Марка", "Старое кол-во", "Файл")
+	p.writeLog("%s\n", strings.Repeat("-", 80))
+
 	if err := p.loadCodeIndexes(); err != nil {
 		return err
 	}
@@ -79,7 +84,7 @@ func (p *PriceComparator) processFullpriceRows() error {
 	}
 
 	for i, row := range rows {
-		if i == 0 || len(row) < 4 {
+		if i == 0 || len(row) < 5 {
 			continue
 		}
 
@@ -90,32 +95,28 @@ func (p *PriceComparator) processFullpriceRows() error {
 }
 
 func (p *PriceComparator) processRow(row []string) {
-	code := strings.TrimSpace(row[1])
-	quantity := strings.TrimSpace(row[3])
+	code := strings.TrimSpace(row[1])     // Колонка B - код
+	brand := strings.TrimSpace(row[4])    // Колонка E - марка
+	quantity := strings.TrimSpace(row[3]) // Колонка D - количество
 
 	if code == "" {
 		return
 	}
 
 	if quantity == "0" {
-		p.handleZeroQuantity(code)
+		p.handleZeroQuantity(code, brand)
 	}
 }
 
-func (p *PriceComparator) handleZeroQuantity(code string) {
-	if updated, quantity := p.updateQuantityInFile(p.KoreaFile, p.KoreaCodes, code); updated {
-		p.writeLog("Код: %s, Старое количество: %f,  ✓ Обновлено в XZAD_Корея.xlsx\n", code, quantity)
-	}
-
-	if updated, quantity := p.updateQuantityInFile(p.EuropeFile, p.EuropeCodes, code); updated {
-		p.writeLog("Код: %s, Старое количество: %f,  ✓ Обновлено в XZAP_ Э.xlsx\n", code, quantity)
-	}
+func (p *PriceComparator) handleZeroQuantity(code, brand string) {
+	p.updateQuantityInFile(p.KoreaFile, p.KoreaCodes, code, brand, "XZAD_Корея.xlsx")
+	p.updateQuantityInFile(p.EuropeFile, p.EuropeCodes, code, brand, "XZAP_Э.xlsx")
 }
 
-func (p *PriceComparator) updateQuantityInFile(file *excelize.File, codesMap map[string]CodeInfo, code string) (bool, float64) {
+func (p *PriceComparator) updateQuantityInFile(file *excelize.File, codesMap map[string]CodeInfo, code, brand, fileName string) {
 	codeInfo, exists := codesMap[code]
 	if !exists {
-		return false, 0
+		return
 	}
 
 	excelRowNum := codeInfo.RowIndex + 1
@@ -123,19 +124,21 @@ func (p *PriceComparator) updateQuantityInFile(file *excelize.File, codesMap map
 	quantity, err := file.GetCellValue(codeInfo.Sheet, cellName)
 	if err != nil {
 		fmt.Println(err)
-		return false, 0
+		return
 	}
+
 	floatQuantity, err := strconv.ParseFloat(quantity, 64)
 	if err != nil {
 		fmt.Println(err)
-		return false, 0
+		return
 	}
 
 	if floatQuantity != 0 {
 		file.SetCellFloat(codeInfo.Sheet, cellName, 0, -1, 64)
-		return true, floatQuantity
+		quantityFormatted := formatQuantity(floatQuantity)
+		p.writeLog("%-15s | %-20s | %-15s | %s\n",
+			code, brand, quantityFormatted, fileName)
 	}
-	return false, 0
 }
 
 func (p *PriceComparator) saveChanges() error {
@@ -143,7 +146,7 @@ func (p *PriceComparator) saveChanges() error {
 		return fmt.Errorf("ошибка сохранения XZAD_Корея.xlsx: %w", err)
 	}
 	if err := p.EuropeFile.Save(); err != nil {
-		return fmt.Errorf("ошибка сохранения XZAP_ Э.xlsx: %w", err)
+		return fmt.Errorf("ошибка сохранения XZAP_Э.xlsx: %w", err)
 	}
 	return nil
 }
@@ -152,4 +155,12 @@ func (p *PriceComparator) writeLog(format string, args ...any) {
 	if p.Writer != nil {
 		fmt.Fprintf(p.Writer, format, args...)
 	}
+}
+
+// formatQuantity убирает .0 у целых чисел
+func formatQuantity(q float64) string {
+	if q == float64(int64(q)) {
+		return fmt.Sprintf("%.0f", q)
+	}
+	return fmt.Sprintf("%.2f", q)
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/AmadoMuerte/xslCompare/internal/constants"
 	"github.com/AmadoMuerte/xslCompare/internal/excelutil"
 	"github.com/AmadoMuerte/xslCompare/internal/fileutil"
+	"github.com/AmadoMuerte/xslCompare/internal/models"
 )
 
 func main() {
@@ -22,13 +23,8 @@ func run() error {
 		return fmt.Errorf("подготовка директории: %w", err)
 	}
 
-	// Копирование файлов
-	if err := fileutil.CopyFilesToWorkDir(constants.FilesDir, []string{constants.KoreaFileName, constants.EuropeFileName}); err != nil {
-		return fmt.Errorf("копирование файлов: %w", err)
-	}
-
 	// Открытие Excel файлов
-	fullpriceF := fmt.Sprintf("%s/%s", constants.FilesDir, constants.FullpriceFileName)
+	fullpriceF := constants.FullpriceFileName
 	koreaF := fmt.Sprintf("%s/%s", constants.FilesDir, constants.KoreaFileName)
 	europeF := fmt.Sprintf("%s/%s", constants.FilesDir, constants.EuropeFileName)
 
@@ -38,5 +34,20 @@ func run() error {
 	}
 	defer excelutil.CloseExcelFiles(files)
 
+	// Создание анализатора
+	analyzer := &models.PriceAnalyzer{
+		Fullprice:   files.Fullprice,
+		KoreaFile:   files.Korea,
+		EuropeFile:  files.Europe,
+		KoreaCodes:  make(map[string]models.CodeInfo),
+		EuropeCodes: make(map[string]models.CodeInfo),
+	}
+
+	// Запуск анализа
+	if err := analyzer.AnalyzeAndLog(); err != nil {
+		return fmt.Errorf("анализ цен: %w", err)
+	}
+
+	fmt.Println("Анализ завершен. Результаты в файле лога.")
 	return nil
 }
