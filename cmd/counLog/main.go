@@ -28,7 +28,11 @@ func run() error {
 	}
 
 	// Открытие Excel файлов
-	files, err := excelutil.OpenExcelFiles([]string{constants.FullpriceFileName, constants.KoreaFileName, constants.EuropeFileName})
+	fullpriceF := fmt.Sprintf("%s/%s", constants.FilesDir, constants.FullpriceFileName)
+	koreaF := fmt.Sprintf("%s/%s", constants.FilesDir, constants.KoreaFileName)
+	europeF := fmt.Sprintf("%s/%s", constants.FilesDir, constants.EuropeFileName)
+
+	files, err := excelutil.OpenExcelFiles([]string{fullpriceF, koreaF, europeF})
 	if err != nil {
 		return fmt.Errorf("открытие файлов: %w", err)
 	}
